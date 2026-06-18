@@ -1,0 +1,12 @@
+{
+  "appId": "com.ezhednevniki.app",
+  "appName": "Ежедневник",
+  "webDir": "dist-checklist",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#E7DFC9"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
