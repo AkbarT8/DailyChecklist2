@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import '../src/index.css';
 import DailyChecklist from '../src/DailyChecklist.jsx';
 
 import { requestNotificationPermission, registerReminderWorker } from '../src/dailyReminder.js';

@@ -9,11 +9,14 @@
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
     max-width: 100%;
+    width: 100%;
+    overscroll-behavior-x: none;
   }
 
   #root {
     overflow-x: hidden;
     max-width: 100%;
+    width: 100%;
   }
 
   /* Part numbers: same clean UI font, tabular digits (no slashed zero) */
