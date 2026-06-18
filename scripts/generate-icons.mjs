@@ -1,12 +1,26 @@
 #!/usr/bin/env node
-/** Generates app icons for PWA / Capacitor (Windows: uses PowerShell + System.Drawing). */
+/** Generates app icons for PWA / Capacitor. Skips if icons already exist (CI/Linux). */
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { platform } from "node:os";
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "checklist", "public");
 fs.mkdirSync(dir, { recursive: true });
+
+const iconPaths = [192, 512].map((size) => path.join(dir, `icon-${size}.png`));
+if (iconPaths.every((p) => fs.existsSync(p))) {
+  console.log("Icons already present in checklist/public/, skipping generation.");
+  process.exit(0);
+}
+
+if (platform() !== "win32") {
+  console.error(
+    "Cannot generate icons on this OS. Commit icon-192.png and icon-512.png in checklist/public/.",
+  );
+  process.exit(1);
+}
 
 const ps = `
 Add-Type -AssemblyName System.Drawing

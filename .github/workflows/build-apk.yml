@@ -11,6 +11,7 @@ on:
       - "capacitor.config.json"
       - "vite.config.checklist.mjs"
       - "scripts/build-apk.mjs"
+      - ".github/workflows/build-apk.yml"
 
 jobs:
   apk:
@@ -20,7 +21,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
 
       - uses: actions/setup-java@v4
@@ -30,6 +31,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          yes | sdkmanager --licenses || true
 
       - run: npm ci
       - run: node scripts/generate-icons.mjs
