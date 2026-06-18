@@ -1,0 +1,26 @@
+# Supabase project (from VITE_SUPABASE_URL)
+project_id = "aekmyfntqdoykuvcocfe"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[functions.process-excel]
+verify_jwt = true
+
+[functions.send-client-file]
+verify_jwt = true
+
+[functions.client-file-access]
+verify_jwt = true
