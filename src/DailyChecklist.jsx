@@ -96,45 +96,110 @@ function DailyInspiration({ ayat, hadith, ayatSaved, hadithSaved, onNextAyat, on
   );
 }
 
-function SavedInspirationList({ items, onRemove }) {
+function SavedInspirationList({ items, selectMode, selectedKeys, onToggleSelect, onRemove }) {
   if (!items.length) {
     return <div className="dc-empty"><p>Здесь будут сохранённые аяты и хадисы. Нажмите закладку на карточке аята или хадиса.</p></div>;
   }
   const ayatItems = items.filter((i) => i.type === "ayat");
   const hadithItems = items.filter((i) => i.type === "hadith");
+  const renderCard = (item) => (
+    <div className={`dc-saved-card ${item.type === "ayat" ? "dc-inspire-ayat" : "dc-inspire-hadith"} ${selectMode && selectedKeys.has(item.key) ? "dc-row-selected" : ""}`} key={item.key}>
+      {selectMode && (
+        <button type="button" className={`dc-select-box ${selectedKeys.has(item.key) ? "checked" : ""}`} onClick={() => onToggleSelect(item.key)} aria-label="Выбрать">
+          {selectedKeys.has(item.key) && <Check size={13} />}
+        </button>
+      )}
+      <div className="dc-saved-card-body">
+        <div className="dc-inspire-ar">{item.ar}</div>
+        <div className="dc-inspire-text">{item.ru || item.text}</div>
+        <div className="dc-saved-foot">
+          <span className="dc-inspire-ref">{item.type === "ayat" ? item.ref : item.source}</span>
+          {!selectMode && (
+            <button type="button" className="dc-inspire-btn" title="Удалить из сохранённых" onClick={() => onRemove(item.key)}><Trash2 size={13} /></button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
   return (
     <div className="dc-saved-wrap">
       {ayatItems.length > 0 && (
         <div className="dc-saved-group">
           <h3 className="dc-saved-title">Аяты ({ayatItems.length})</h3>
-          {ayatItems.map((item) => (
-            <div className="dc-saved-card dc-inspire-ayat" key={item.key}>
-              <div className="dc-inspire-ar">{item.ar}</div>
-              <div className="dc-inspire-text">{item.ru}</div>
-              <div className="dc-saved-foot">
-                <span className="dc-inspire-ref">{item.ref}</span>
-                <button type="button" className="dc-inspire-btn" title="Удалить из сохранённых" onClick={() => onRemove(item.key)}><Trash2 size={13} /></button>
-              </div>
-            </div>
-          ))}
+          {ayatItems.map(renderCard)}
         </div>
       )}
       {hadithItems.length > 0 && (
         <div className="dc-saved-group">
           <h3 className="dc-saved-title">Хадисы ({hadithItems.length})</h3>
-          {hadithItems.map((item) => (
-            <div className="dc-saved-card dc-inspire-hadith" key={item.key}>
-              <div className="dc-inspire-ar dc-inspire-hadith-ar">{item.ar}</div>
-              <div className="dc-inspire-text">{item.ru || item.text}</div>
-              <div className="dc-saved-foot">
-                <span className="dc-inspire-ref">{item.source}</span>
-                <button type="button" className="dc-inspire-btn" title="Удалить из сохранённых" onClick={() => onRemove(item.key)}><Trash2 size={13} /></button>
-              </div>
-            </div>
-          ))}
+          {hadithItems.map(renderCard)}
         </div>
       )}
     </div>
+  );
+}
+
+function FolderSheet({ open, onClose, title, folders, selected, onSelect, showCounts, folderTaskCount, allowManage, folderDraft, setFolderDraft, folderDraftOpen, setFolderDraftOpen, onAddFolder, onNewFolder, onDeleteFolder, onDeleteAllFolders }) {
+  if (!open) return null;
+  return (
+    <>
+      <div className="dc-sheet-backdrop" onClick={onClose} />
+      <div className="dc-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="dc-sheet-head">
+          <h3 className="dc-sheet-title">{title}</h3>
+          <button type="button" className="dc-icon-ghost" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="dc-sheet-body">
+          {onSelect && (
+            <button type="button" className={`dc-sheet-item ${!selected ? "selected" : ""}`} onClick={() => { onSelect(null); onClose(); }}>
+              <Folder size={16} />
+              <span>{title === "Выберите папку" ? "Без папки" : "Все папки"}</span>
+            </button>
+          )}
+          {folders.map((f) => (
+            <div key={f} className="dc-sheet-row">
+              <button type="button" className={`dc-sheet-item ${selected === f ? "selected" : ""}`} onClick={() => { onSelect?.(f); onClose(); }}>
+                <span className="dc-dot" style={{ background: folderColor(f) }} />
+                <span className="dc-sheet-item-label">{f}</span>
+                {showCounts && folderTaskCount && <span className="dc-dropdown-meta">{folderTaskCount(f)}</span>}
+              </button>
+              {allowManage && onDeleteFolder && (
+                <button type="button" className="dc-dropdown-del" title="Удалить папку" onClick={() => onDeleteFolder(f)}>
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+          ))}
+          {allowManage && (onAddFolder || onNewFolder) && (
+            <>
+              <div className="dc-dropdown-divider" />
+              {onNewFolder ? (
+                <button type="button" className="dc-sheet-item dc-dropdown-add" onClick={() => { onNewFolder(); onClose(); }}>
+                  <FolderPlus size={16} /> Новая папка
+                </button>
+              ) : !folderDraftOpen ? (
+                <button type="button" className="dc-sheet-item dc-dropdown-add" onClick={() => setFolderDraftOpen(true)}>
+                  <FolderPlus size={16} /> Новая папка
+                </button>
+              ) : (
+                <div className="dc-dropdown-draft">
+                  <input className="dc-dropdown-input" autoFocus placeholder="Название папки" value={folderDraft}
+                    onChange={(e) => setFolderDraft(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") onAddFolder(folderDraft); if (e.key === "Escape") { setFolderDraft(""); setFolderDraftOpen(false); } }} />
+                  <button type="button" className="dc-icon-ghost" onClick={() => onAddFolder(folderDraft)}><Check size={16} /></button>
+                  <button type="button" className="dc-icon-ghost" onClick={() => { setFolderDraft(""); setFolderDraftOpen(false); }}><X size={16} /></button>
+                </div>
+              )}
+              {onDeleteAllFolders && folders.length > 0 && (
+                <button type="button" className="dc-sheet-item dc-dropdown-danger" onClick={() => { onDeleteAllFolders(); onClose(); }}>
+                  <Trash2 size={14} /> Удалить все папки
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -228,6 +293,8 @@ export default function DailyChecklist() {
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [savedSelectMode, setSavedSelectMode] = useState(false);
+  const [selectedSavedKeys, setSelectedSavedKeys] = useState(() => new Set());
   const [showOthers, setShowOthers] = useState(false);
 
   const [panelOpen, setPanelOpen] = useState(false);
@@ -284,8 +351,6 @@ export default function DailyChecklist() {
   useEffect(() => {
     const onDocClick = (e) => {
       if (folderMenuRef.current && !folderMenuRef.current.contains(e.target)) {
-        setFolderMenuOpen(false);
-        setFolderDraftOpen(false);
         setMoveMenuOpen(false);
       }
     };
@@ -356,7 +421,40 @@ export default function DailyChecklist() {
 
   const removeSavedInspiration = useCallback((key) => {
     setSavedInspiration((prev) => prev.filter((x) => x.key !== key));
+    setSelectedSavedKeys((prev) => { const n = new Set(prev); n.delete(key); return n; });
   }, []);
+
+  const removeSavedBulk = useCallback((keys) => {
+    const keySet = new Set(keys);
+    setSavedInspiration((prev) => prev.filter((x) => !keySet.has(x.key)));
+    setSelectedSavedKeys(new Set());
+    setSavedSelectMode(false);
+  }, []);
+
+  const exitSavedSelectMode = () => {
+    setSavedSelectMode(false);
+    setSelectedSavedKeys(new Set());
+  };
+
+  const toggleSavedSelect = (key) => {
+    setSelectedSavedKeys((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key); else n.add(key);
+      return n;
+    });
+  };
+
+  const requestDeleteSavedBulk = (keys) => {
+    const keyArr = [...keys];
+    if (!keyArr.length) return;
+    openConfirm({
+      title: keyArr.length === 1 ? "Удалить из сохранённых?" : `Удалить ${keyArr.length} элементов?`,
+      rows: [{ label: "Действие", value: "Убрать из сохранённых" }],
+      confirmLabel: "Удалить",
+      danger: true,
+      onConfirm: () => { removeSavedBulk(keyArr); closeConfirm(); },
+    });
+  };
 
   const enterApp = async () => {
     try { sessionStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ }
@@ -425,6 +523,8 @@ export default function DailyChecklist() {
     setFolderFilter(null);
     setSelectedIds(new Set());
     setSelectMode(false);
+    setSavedSelectMode(false);
+    setSelectedSavedKeys(new Set());
     setSearchQuery("");
     setConfirmReset(false);
     await persistData(empty);
@@ -624,6 +724,8 @@ export default function DailyChecklist() {
     setMoveMenuOpen(false);
   };
 
+  const allSavedSelected = savedInspiration.length > 0 && savedInspiration.every((x) => selectedSavedKeys.has(x.key));
+
   const baseTasks = useMemo(() => {
     let list = tasks;
     if (folderFilter) list = list.filter((t) => t.folder === folderFilter);
@@ -763,87 +865,76 @@ export default function DailyChecklist() {
           )}
           <div className="dc-toolbar">
             <div className="dc-filter-row">
-              <button className={`dc-filter-btn ${listFilter === "all" ? "active" : ""}`} onClick={() => setListFilter("all")}>
+              <button className={`dc-filter-btn ${listFilter === "all" ? "active" : ""}`} onClick={() => { setListFilter("all"); exitSavedSelectMode(); }}>
                 Все
                 {todayStats.total > 0 && <span className="dc-badge">{todayStats.total}</span>}
               </button>
-              <button className={`dc-filter-btn ${listFilter === "incomplete" ? "active" : ""}`} onClick={() => setListFilter("incomplete")}>
+              <button className={`dc-filter-btn ${listFilter === "incomplete" ? "active" : ""}`} onClick={() => { setListFilter("incomplete"); exitSavedSelectMode(); }}>
                 Невыполненные
                 {todayStats.incomplete > 0 && <span className="dc-badge dc-badge-warn">{todayStats.incomplete}</span>}
               </button>
-              <button className={`dc-filter-btn dc-filter-overdue ${listFilter === "overdue" ? "active" : ""}`} onClick={() => { setListFilter("overdue"); exitSelectMode(); }}>
+              <button className={`dc-filter-btn dc-filter-overdue ${listFilter === "overdue" ? "active" : ""}`} onClick={() => { setListFilter("overdue"); exitSelectMode(); exitSavedSelectMode(); }}>
                 <AlertTriangle size={13} /> Просроченные
                 {overdueList.length > 0 && <span className="dc-badge dc-badge-warn">{overdueList.length}</span>}
               </button>
-              <button className={`dc-filter-btn dc-filter-saved ${listFilter === "saved" ? "active" : ""}`} onClick={() => { setListFilter("saved"); exitSelectMode(); }}>
+              <button className={`dc-filter-btn dc-filter-saved ${listFilter === "saved" ? "active" : ""}`} onClick={() => { setListFilter("saved"); exitSelectMode(); exitSavedSelectMode(); }}>
                 <Bookmark size={13} /> Сохранённые
                 {savedInspiration.length > 0 && <span className="dc-badge">{savedInspiration.length}</span>}
               </button>
             </div>
 
             <div className="dc-toolbar-right">
+              {listFilter !== "saved" && (
+              <>
               <div className="dc-search-wrap">
                 <Search size={14} />
                 <input className="dc-search" placeholder="Поиск…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
                 {searchQuery && <button className="dc-search-clear" onClick={() => setSearchQuery("")}><X size={12} /></button>}
               </div>
 
-              <div className="dc-menu-wrap" ref={folderMenuRef}>
-                <button className={`dc-menu-btn ${folderFilter ? "active" : ""}`} onClick={() => setFolderMenuOpen((v) => !v)}>
-                  <Folder size={14} />
-                  {folderFilter || "Папки"}
-                  <ChevronDown size={13} />
-                </button>
-                {folderMenuOpen && (
-                  <div className="dc-dropdown">
-                    <button className={`dc-dropdown-item ${!folderFilter ? "selected" : ""}`} onClick={() => { setFolderFilter(null); setFolderMenuOpen(false); }}>
-                      <span>Все папки</span>
-                      <span className="dc-dropdown-meta">{tasks.length}</span>
-                    </button>
-                    <div className="dc-dropdown-divider" />
-                    {userFolders.map((f) => (
-                      <div key={f} className="dc-dropdown-row">
-                        <button className={`dc-dropdown-item ${folderFilter === f ? "selected" : ""}`} onClick={() => { setFolderFilter(f); setFolderMenuOpen(false); }}>
-                          <span className="dc-dot" style={{ background: folderColor(f) }} />
-                          <span>{f}</span>
-                          <span className="dc-dropdown-meta">{folderTaskCount(f)}</span>
-                        </button>
-                        <button className="dc-dropdown-del" title="Удалить папку" onClick={() => { setFolderMenuOpen(false); requestDeleteFolder(f); }}>
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    ))}
-                    <div className="dc-dropdown-divider" />
-                    {!folderDraftOpen ? (
-                      <button className="dc-dropdown-item dc-dropdown-add" onClick={() => setFolderDraftOpen(true)}>
-                        <FolderPlus size={14} /> Новая папка
-                      </button>
-                    ) : (
-                      <div className="dc-dropdown-draft">
-                        <input className="dc-dropdown-input" autoFocus placeholder="Название" value={folderDraft}
-                          onChange={(e) => setFolderDraft(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") addFolder(folderDraft); if (e.key === "Escape") { setFolderDraft(""); setFolderDraftOpen(false); } }} />
-                        <button className="dc-icon-ghost" onClick={() => addFolder(folderDraft)}><Check size={14} /></button>
-                        <button className="dc-icon-ghost" onClick={() => { setFolderDraft(""); setFolderDraftOpen(false); }}><X size={14} /></button>
-                      </div>
-                    )}
-                    {userFolders.length > 0 && (
-                      <button className="dc-dropdown-item dc-dropdown-danger" onClick={() => { setFolderMenuOpen(false); requestDeleteAllFolders(); }}>
-                        <Trash2 size={13} /> Удалить все папки
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              <button type="button" className={`dc-menu-btn ${folderFilter ? "active" : ""}`} onClick={() => setFolderMenuOpen(true)}>
+                <Folder size={14} />
+                {folderFilter || "Папки"}
+                <ChevronDown size={13} />
+              </button>
+              </>
+              )}
 
-              <button className={`dc-menu-btn ${selectMode ? "active" : ""}`} onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}>
-                {selectMode ? <X size={14} /> : <CheckSquare size={14} />}
-                {selectMode ? "Отмена" : "Выбрать"}
+              <button type="button" className={`dc-menu-btn ${(listFilter === "saved" ? savedSelectMode : selectMode) ? "active" : ""}`} onClick={() => {
+                if (listFilter === "saved") {
+                  savedSelectMode ? exitSavedSelectMode() : setSavedSelectMode(true);
+                } else {
+                  selectMode ? exitSelectMode() : setSelectMode(true);
+                }
+              }}>
+                {(listFilter === "saved" ? savedSelectMode : selectMode) ? <X size={14} /> : <CheckSquare size={14} />}
+                {(listFilter === "saved" ? savedSelectMode : selectMode) ? "Отмена" : "Выбрать"}
               </button>
             </div>
           </div>
 
-          {selectMode && (
+          {listFilter === "saved" && savedSelectMode && (
+            <div className="dc-bulk-bar">
+              <span className="dc-bulk-count">Выбрано: {selectedSavedKeys.size}</span>
+              <div className="dc-bulk-actions">
+                <button type="button" className="dc-btn-small" onClick={() => setSelectedSavedKeys(allSavedSelected ? new Set() : new Set(savedInspiration.map((x) => x.key)))}>
+                  {allSavedSelected ? "Снять всё" : "Выбрать все"}
+                </button>
+                {selectedSavedKeys.size > 0 && (
+                  <button type="button" className="dc-btn-small dc-btn-danger" onClick={() => requestDeleteSavedBulk([...selectedSavedKeys])}>
+                    <Trash2 size={13} /> Удалить выбранные
+                  </button>
+                )}
+                {savedInspiration.length > 0 && (
+                  <button type="button" className="dc-btn-small dc-btn-danger" onClick={() => requestDeleteSavedBulk(savedInspiration.map((x) => x.key))}>
+                    <Trash2 size={13} /> Удалить все
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {listFilter !== "saved" && selectMode && (
             <div className="dc-bulk-bar">
               <span className="dc-bulk-count">Выбрано: {selectedIds.size}</span>
               <div className="dc-bulk-actions">
@@ -915,8 +1006,17 @@ export default function DailyChecklist() {
               <section className="dc-section dc-section-saved">
                 <div className="dc-section-head">
                   <h2 className="dc-section-title"><Bookmark size={14} /> Сохранённые</h2>
+                  {!savedSelectMode && savedInspiration.length > 0 && (
+                    <button type="button" className="dc-link-btn" onClick={() => requestDeleteSavedBulk(savedInspiration.map((x) => x.key))}>Удалить все</button>
+                  )}
                 </div>
-                <SavedInspirationList items={savedInspiration} onRemove={removeSavedInspiration} />
+                <SavedInspirationList
+                  items={savedInspiration}
+                  selectMode={savedSelectMode}
+                  selectedKeys={selectedSavedKeys}
+                  onToggleSelect={toggleSavedSelect}
+                  onRemove={removeSavedInspiration}
+                />
               </section>
             ) : (
               <>
@@ -978,6 +1078,25 @@ export default function DailyChecklist() {
       {panelOpen && (
         <AddTaskPanel form={form} setForm={setForm} folders={userFolders} onClose={() => setPanelOpen(false)} onSave={saveTask} />
       )}
+
+      <FolderSheet
+        open={folderMenuOpen}
+        onClose={() => { setFolderMenuOpen(false); setFolderDraftOpen(false); setFolderDraft(""); }}
+        title="Папки"
+        folders={userFolders}
+        selected={folderFilter}
+        onSelect={(f) => setFolderFilter(f)}
+        showCounts
+        folderTaskCount={folderTaskCount}
+        allowManage
+        folderDraft={folderDraft}
+        setFolderDraft={setFolderDraft}
+        folderDraftOpen={folderDraftOpen}
+        setFolderDraftOpen={setFolderDraftOpen}
+        onAddFolder={(name) => { addFolder(name); setFolderMenuOpen(false); }}
+        onDeleteFolder={(name) => requestDeleteFolder(name)}
+        onDeleteAllFolders={() => requestDeleteAllFolders()}
+      />
     </div>
   );
 }
@@ -1045,13 +1164,27 @@ function TaskRow({ task, checked, onToggle, onEdit, onDelete, showFolder, inacti
 }
 
 function AddTaskPanel({ form, setForm, folders, onClose, onSave }) {
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false);
+  const [newFolderDraft, setNewFolderDraft] = useState("");
+  const [newFolderDraftOpen, setNewFolderDraftOpen] = useState(false);
   const set = (patch) => setForm((f) => ({ ...f, ...patch }));
+
+  const folderLabel = form.isNewFolder
+    ? (form.newFolderName.trim() || "Новая папка…")
+    : (displayFolder(form.folder) || form.folder || DEFAULT_FOLDER);
+
+  const pickFolder = (name) => {
+    if (!name) set({ folder: DEFAULT_FOLDER, isNewFolder: false, newFolderName: "" });
+    else set({ folder: name, isNewFolder: false, newFolderName: "" });
+  };
+
   return (
+    <>
     <div className="dc-overlay" onClick={onClose}>
       <div className="dc-card" onClick={(e) => e.stopPropagation()}>
         <div className="dc-card-head">
           <h2>{form.id ? "Редактировать" : "Новая задача"}</h2>
-          <button className="dc-icon-ghost" onClick={onClose}><X size={18} /></button>
+          <button type="button" className="dc-icon-ghost" onClick={onClose}><X size={18} /></button>
         </div>
         <div className="dc-field">
           <label>Название</label>
@@ -1060,27 +1193,24 @@ function AddTaskPanel({ form, setForm, folders, onClose, onSave }) {
         </div>
         <div className="dc-field">
           <label>Папка</label>
-          {!form.isNewFolder ? (
-            <select className="dc-input" value={form.folder === DEFAULT_FOLDER ? (folders[0] || "__new__") : form.folder} onChange={(e) => {
-              if (e.target.value === "__new__") set({ isNewFolder: true, newFolderName: "" });
-              else set({ folder: e.target.value });
-            }}>
-              {folders.map((f) => <option key={f} value={f}>{f}</option>)}
-              <option value="__new__">+ Новая папка…</option>
-            </select>
-          ) : (
-            <div className="dc-inline-row">
-              <input className="dc-input" placeholder="Название папки" value={form.newFolderName}
+          {form.isNewFolder ? (
+            <div className="dc-folder-new">
+              <input className="dc-input" placeholder="Название новой папки" value={form.newFolderName}
                 onChange={(e) => set({ newFolderName: e.target.value })} autoFocus />
-              <button className="dc-btn-small" onClick={() => set({ isNewFolder: false })}>Отмена</button>
+              <button type="button" className="dc-btn-small" onClick={() => set({ isNewFolder: false, newFolderName: "" })}>К списку</button>
             </div>
+          ) : (
+            <button type="button" className="dc-input dc-picker-btn" onClick={() => setFolderSheetOpen(true)}>
+              <span className="dc-picker-label">{folderLabel}</span>
+              <ChevronDown size={16} />
+            </button>
           )}
         </div>
         <div className="dc-field">
           <label>Повторение</label>
           <div className="dc-repeat-options">
             {[["daily", "Ежедневно"], ["everyOther", "Через день"], ["weekly", "По дням"], ["once", "Один раз"]].map(([val, lbl]) => (
-              <button key={val} className={`dc-pill ${form.repeat === val ? "active" : ""}`} onClick={() => set({ repeat: val })}>{lbl}</button>
+              <button type="button" key={val} className={`dc-pill ${form.repeat === val ? "active" : ""}`} onClick={() => set({ repeat: val })}>{lbl}</button>
             ))}
           </div>
         </div>
@@ -1089,7 +1219,7 @@ function AddTaskPanel({ form, setForm, folders, onClose, onSave }) {
             <label>Дни недели</label>
             <div className="dc-weekday-row">
               {WEEKDAY_ORDER.map((w) => (
-                <button key={w} className={`dc-weekday ${form.weekdays.includes(w) ? "active" : ""}`}
+                <button type="button" key={w} className={`dc-weekday ${form.weekdays.includes(w) ? "active" : ""}`}
                   onClick={() => set({ weekdays: form.weekdays.includes(w) ? form.weekdays.filter((x) => x !== w) : [...form.weekdays, w] })}>
                   {WEEKDAY_SHORT[w]}
                 </button>
@@ -1113,11 +1243,26 @@ function AddTaskPanel({ form, setForm, folders, onClose, onSave }) {
             value={form.benefit} onChange={(e) => set({ benefit: e.target.value })} />
         </div>
         <div className="dc-card-foot">
-          <button className="dc-btn-ghost" onClick={onClose}>Отмена</button>
-          <button className="dc-btn-primary" onClick={onSave}>Сохранить</button>
+          <button type="button" className="dc-btn-ghost" onClick={onClose}>Отмена</button>
+          <button type="button" className="dc-btn-primary" onClick={onSave}>Сохранить</button>
         </div>
       </div>
     </div>
+    <FolderSheet
+      open={folderSheetOpen}
+      onClose={() => { setFolderSheetOpen(false); setNewFolderDraftOpen(false); setNewFolderDraft(""); }}
+      title="Выберите папку"
+      folders={folders}
+      selected={form.folder === DEFAULT_FOLDER ? null : form.folder}
+      onSelect={pickFolder}
+      allowManage
+      folderDraft={newFolderDraft}
+      setFolderDraft={setNewFolderDraft}
+      folderDraftOpen={newFolderDraftOpen}
+      setFolderDraftOpen={setNewFolderDraftOpen}
+      onNewFolder={() => set({ isNewFolder: true, newFolderName: "" })}
+    />
+    </>
   );
 }
 
@@ -1309,7 +1454,7 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-daily-banner-body{flex:1;min-width:0;}
 .dc-daily-banner-title{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);margin-bottom:4px;}
 .dc-daily-banner-text{font-size:13px;line-height:1.4;color:var(--ink);}
-.dc-confirm-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.5);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px;}
+.dc-confirm-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.5);display:flex;align-items:center;justify-content:center;z-index:400;padding:16px;}
 .dc-confirm-box{background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:10px;padding:20px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.15);}
 .dc-confirm-title{font-family:var(--font-display);font-size:18px;margin:0 0 14px;}
 .dc-confirm-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px;}
@@ -1332,7 +1477,8 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-saved-wrap{display:flex;flex-direction:column;gap:14px;}
 .dc-saved-group{display:flex;flex-direction:column;gap:8px;}
 .dc-saved-title{font-family:var(--font-mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--ink-soft);margin:0;}
-.dc-saved-card{background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.dc-saved-card{background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:8px;padding:10px 12px;display:flex;flex-direction:row;align-items:flex-start;gap:8px;min-width:0;}
+.dc-saved-card-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
 .dc-saved-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;}
 .dc-inspire-ayat{border-top:3px solid var(--accent);}
 .dc-inspire-hadith{border-top:3px solid var(--gold);}
@@ -1358,7 +1504,7 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-btn-danger{background:var(--red);color:#fff;border-color:var(--red);}
 .dc-banner{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--gold-light);border:1px solid var(--gold);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;flex-wrap:wrap;}
 .dc-banner-actions{display:flex;gap:6px;}
-.dc-toolbar{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-bottom:10px;padding:8px;background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:8px;width:100%;max-width:100%;overflow:hidden;}
+.dc-toolbar{display:flex;flex-direction:column;align-items:stretch;gap:8px;margin-bottom:10px;padding:8px;background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:8px;width:100%;max-width:100%;overflow:visible;position:relative;z-index:10;}
 .dc-filter-row{display:flex;gap:4px;overflow-x:auto;flex-wrap:nowrap;width:100%;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;}
 .dc-filter-row::-webkit-scrollbar{display:none;}
 .dc-filter-btn{display:flex;align-items:center;gap:4px;border:1px solid transparent;background:transparent;padding:7px 10px;border-radius:8px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--font-body);color:var(--ink-soft);white-space:nowrap;flex-shrink:0;min-height:36px;touch-action:manipulation;}
@@ -1426,7 +1572,7 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-overdue-meta{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-soft);margin-top:1px;}
 .dc-overdue-actions{display:flex;gap:2px;}
 .dc-overdue-more{padding:8px 12px;font-size:11px;color:var(--ink-soft);text-align:center;}
-.dc-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.45);display:flex;align-items:flex-end;justify-content:center;z-index:50;padding:0;}
+.dc-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.45);display:flex;align-items:flex-end;justify-content:center;z-index:250;padding:0;}
 .dc-card{width:100%;max-width:100vw;height:auto;max-height:92dvh;background:var(--paper-light);padding:14px 14px max(14px,env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:auto;border-radius:14px 14px 0 0;box-sizing:border-box;}
 .dc-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;}
 .dc-card-head h2{font-family:var(--font-display);font-size:17px;margin:0;}
@@ -1487,4 +1633,16 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-confirm-overlay{padding:max(12px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));}
 .dc-confirm-box{max-width:100%;}
 .dc-dropdown{left:0;right:0;min-width:0;max-width:100vw;}
+.dc-sheet-backdrop{position:fixed;inset:0;background:rgba(43,42,37,0.5);z-index:280;}
+.dc-sheet{position:fixed;left:0;right:0;bottom:0;max-height:75dvh;background:var(--paper-light);border-radius:14px 14px 0 0;z-index:281;overflow-y:auto;padding-bottom:max(12px,env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(0,0,0,0.18);}
+.dc-sheet-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--ink-faint);position:sticky;top:0;background:var(--paper-light);z-index:1;}
+.dc-sheet-title{font-family:var(--font-display);font-size:17px;margin:0;font-weight:600;}
+.dc-sheet-body{padding:8px 10px 12px;display:flex;flex-direction:column;gap:4px;}
+.dc-sheet-row{display:flex;align-items:center;gap:4px;}
+.dc-sheet-item{display:flex;align-items:center;gap:10px;width:100%;border:none;background:transparent;padding:12px 10px;border-radius:8px;font-size:14px;font-family:var(--font-body);color:var(--ink);text-align:left;cursor:pointer;min-height:44px;touch-action:manipulation;}
+.dc-sheet-item.selected{background:var(--accent-light);font-weight:600;}
+.dc-sheet-item-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dc-picker-btn{display:flex!important;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer;appearance:none;-webkit-appearance:none;}
+.dc-picker-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dc-folder-new{display:flex;flex-direction:column;gap:8px;width:100%;}
 `;
