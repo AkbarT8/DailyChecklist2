@@ -2,14 +2,17 @@
 -- Юзернейм уникален глобально — два пользователя не могут взять одинаковый.
 
 CREATE TABLE IF NOT EXISTS checklist_users (
-  id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  username     text        UNIQUE NOT NULL,
-  display_name text        NOT NULL,
-  today_date   text,                          -- 'YYYY-MM-DD' последнего обновления статистики
-  today_done   integer     DEFAULT 0,         -- сколько задач выполнено сегодня
-  today_total  integer     DEFAULT 0,         -- всего задач на сегодня
-  last_seen    timestamptz DEFAULT now(),
-  created_at   timestamptz DEFAULT now()
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  username         text        UNIQUE NOT NULL,
+  display_name     text        NOT NULL,
+  today_date       text,                      -- 'YYYY-MM-DD'
+  today_done       integer     DEFAULT 0,
+  today_total      integer     DEFAULT 0,
+  yesterday_date   text,                      -- 'YYYY-MM-DD'
+  yesterday_done   integer     DEFAULT 0,
+  yesterday_total  integer     DEFAULT 0,
+  last_seen        timestamptz DEFAULT now(),
+  created_at       timestamptz DEFAULT now()
 );
 
 ALTER TABLE checklist_users ENABLE ROW LEVEL SECURITY;

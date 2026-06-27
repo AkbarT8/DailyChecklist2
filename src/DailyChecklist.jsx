@@ -243,19 +243,36 @@ async function registerUsername(username, displayName) {
   }
 }
 
-// ─── Sync today's stats to Supabase so friends can see them ─────────────────
+// ─── Sync today's/yesterday's stats to Supabase so friends can see them ─────
 async function syncStatsToSupabase(username, todayDate, done, total) {
   if (!SB_URL || !SB_KEY || !username) return;
+  // Compute yesterday string
+  const d = new Date(todayDate);
+  d.setDate(d.getDate() - 1);
+  const yDate = d.toISOString().slice(0, 10);
+
+  // Read what we saved yesterday from localStorage
+  let yDone = 0, yTotal = 0;
+  try {
+    const cached = JSON.parse(localStorage.getItem("checklist-sync-cache") || "{}");
+    // If we saved a yesterday cache entry, use it
+    if (cached.date === yDate) { yDone = cached.done || 0; yTotal = cached.total || 0; }
+    // Save today's snapshot to cache
+    localStorage.setItem("checklist-sync-cache", JSON.stringify({ date: todayDate, done, total }));
+  } catch { /* ignore */ }
+
   try {
     await fetch(`${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(username)}`, {
       method: "PATCH",
       headers: {
-        apikey: SB_KEY,
-        Authorization: `Bearer ${SB_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal",
+        apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json", Prefer: "return=minimal",
       },
-      body: JSON.stringify({ today_date: todayDate, today_done: done, today_total: total, last_seen: new Date().toISOString() }),
+      body: JSON.stringify({
+        today_date: todayDate, today_done: done, today_total: total,
+        yesterday_date: yDate, yesterday_done: yDone, yesterday_total: yTotal,
+        last_seen: new Date().toISOString(),
+      }),
     });
   } catch { /* offline – ignore */ }
 }
@@ -281,10 +298,32 @@ function AvatarCircle({ displayName, size = 36, onClick }) {
 
 // ─── Friend card ─────────────────────────────────────────────────────────────
 function FriendCard({ friend, today }) {
+  const d = new Date(today);
+  d.setDate(d.getDate() - 1);
+  const yesterday = d.toISOString().slice(0, 10);
+
   const isToday = friend.today_date === today;
-  const pct = isToday && friend.today_total > 0 ? Math.round((friend.today_done / friend.today_total) * 100) : null;
+  const todayPct = isToday && (friend.today_total || 0) > 0
+    ? Math.round((friend.today_done / friend.today_total) * 100) : null;
+
+  const isYesterday = friend.yesterday_date === yesterday;
+  const yestPct = isYesterday && (friend.yesterday_total || 0) > 0
+    ? Math.round((friend.yesterday_done / friend.yesterday_total) * 100) : null;
+
   const ini = (friend.display_name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
-  const statusColor = pct === 100 ? "var(--accent)" : pct !== null ? "var(--gold)" : "var(--ink-faint)";
+  const statusColor = todayPct === 100 ? "var(--accent)" : todayPct !== null ? "var(--gold)" : "var(--ink-faint)";
+
+  // Format last_seen nicely
+  let lastSeenStr = "";
+  if (friend.last_seen) {
+    const ls = new Date(friend.last_seen);
+    const diffMin = Math.floor((Date.now() - ls.getTime()) / 60000);
+    if (diffMin < 2) lastSeenStr = "только что";
+    else if (diffMin < 60) lastSeenStr = `${diffMin} мин. назад`;
+    else if (diffMin < 1440) lastSeenStr = `${Math.floor(diffMin / 60)} ч. назад`;
+    else lastSeenStr = `${Math.floor(diffMin / 1440)} дн. назад`;
+  }
+
   return (
     <div className="dc-friend-card">
       <div className="dc-avatar-medium">
@@ -293,18 +332,36 @@ function FriendCard({ friend, today }) {
       </div>
       <div className="dc-friend-info">
         <div className="dc-friend-name">{friend.display_name}</div>
-        <div className="dc-friend-un">@{friend.username}</div>
-        {pct !== null ? (
+        <div className="dc-friend-un">@{friend.username}{lastSeenStr && <span className="dc-friend-seen"> · {lastSeenStr}</span>}</div>
+
+        {/* Today */}
+        <div className="dc-friend-day-label">Сегодня</div>
+        {todayPct !== null ? (
           <>
             <div className="dc-friend-bar-wrap">
-              <div className="dc-friend-bar" style={{ width: `${pct}%`, background: statusColor }} />
+              <div className="dc-friend-bar" style={{ width: `${todayPct}%`, background: statusColor }} />
             </div>
             <div className="dc-friend-pct" style={{ color: statusColor }}>
-              {pct === 100 ? "✅ Все выполнено!" : `${pct}% выполнено сегодня (${friend.today_done}/${friend.today_total})`}
+              {todayPct === 100 ? "✅ Все выполнено!" : `${todayPct}% · ${friend.today_done}/${friend.today_total} задач`}
             </div>
           </>
         ) : (
-          <div className="dc-friend-pct" style={{ color: "var(--ink-soft)" }}>Нет данных на сегодня</div>
+          <div className="dc-friend-pct" style={{ color: "var(--ink-soft)" }}>Нет данных</div>
+        )}
+
+        {/* Yesterday */}
+        <div className="dc-friend-day-label" style={{ marginTop: 8 }}>Вчера</div>
+        {yestPct !== null ? (
+          <>
+            <div className="dc-friend-bar-wrap">
+              <div className="dc-friend-bar" style={{ width: `${yestPct}%`, background: yestPct === 100 ? "var(--accent)" : "var(--gold)", opacity: 0.7 }} />
+            </div>
+            <div className="dc-friend-pct" style={{ color: yestPct === 100 ? "var(--accent)" : "var(--gold)", opacity: 0.85 }}>
+              {yestPct === 100 ? "✅ Все выполнено вчера!" : `${yestPct}% · ${friend.yesterday_done}/${friend.yesterday_total} задач`}
+            </div>
+          </>
+        ) : (
+          <div className="dc-friend-pct" style={{ color: "var(--ink-soft)" }}>Нет данных</div>
         )}
       </div>
     </div>
@@ -336,16 +393,32 @@ function ProfileSheet({ open, onClose, userProfile, todayStats, today }) {
     const un = friendInput.trim().toLowerCase().replace(/^@/, "");
     if (!un) return;
     if (un === userProfile?.username) { setFError("Это вы 😄"); return; }
+    if (!SB_URL || !SB_KEY) {
+      setFError("Supabase не настроен — функция друзей недоступна");
+      return;
+    }
     setFLoading(true); setFError(""); setFriend(null);
     try {
-      const res = await fetch(
-        `${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(un)}&select=username,display_name,today_date,today_done,today_total,last_seen&limit=1`,
-        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } }
-      );
+      // Use select=* so it works whether or not the new columns exist
+      const url = `${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(un)}&select=*&limit=1`;
+      const res = await fetch(url, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, Accept: "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) {
+        let msg = `Ошибка сервера ${res.status}`;
+        try { const e = await res.json(); msg = e.message || msg; } catch { /* ignore */ }
+        setFError(msg);
+        setFLoading(false);
+        return;
+      }
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) setFriend(data[0]);
-      else setFError("Пользователь не найден");
-    } catch { setFError("Ошибка сети — проверьте подключение"); }
+      else setFError("Пользователь не найден — возможно, он ещё не открывал приложение");
+    } catch (e) {
+      if (e?.name === "TimeoutError") setFError("Сервер не ответил (таймаут). Попробуйте позже.");
+      else setFError("Не удалось подключиться к серверу. Проверьте, что Supabase настроен в .env");
+    }
     setFLoading(false);
   };
 
@@ -1215,15 +1288,9 @@ export default function DailyChecklist() {
                 <AlertTriangle size={13} /> Просроченные
                 {overdueList.length > 0 && <span className="dc-badge dc-badge-warn">{overdueList.length}</span>}
               </button>
-              <button className={`dc-filter-btn dc-filter-saved ${listFilter === "saved" ? "active" : ""}`} onClick={() => { setListFilter("saved"); exitSelectMode(); exitSavedSelectMode(); }}>
-                <Bookmark size={13} /> Сохранённые
-                {savedInspiration.length > 0 && <span className="dc-badge">{savedInspiration.length}</span>}
-              </button>
             </div>
 
             <div className="dc-toolbar-right">
-              {listFilter !== "saved" && (
-              <>
               <div className="dc-search-wrap">
                 <Search size={14} />
                 <input className="dc-search" placeholder="Поиск…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
@@ -1235,42 +1302,14 @@ export default function DailyChecklist() {
                 {folderFilter || "Папки"}
                 <ChevronDown size={13} />
               </button>
-              </>
-              )}
 
-              <button type="button" className={`dc-menu-btn ${(listFilter === "saved" ? savedSelectMode : selectMode) ? "active" : ""}`} onClick={() => {
-                if (listFilter === "saved") {
-                  savedSelectMode ? exitSavedSelectMode() : setSavedSelectMode(true);
-                } else {
-                  selectMode ? exitSelectMode() : setSelectMode(true);
-                }
-              }}>
-                {(listFilter === "saved" ? savedSelectMode : selectMode) ? <X size={14} /> : <CheckSquare size={14} />}
-                {(listFilter === "saved" ? savedSelectMode : selectMode) ? "Отмена" : "Выбрать"}
+              <button type="button" className={`dc-menu-btn ${selectMode ? "active" : ""}`} onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}>
+                {selectMode ? <X size={14} /> : <CheckSquare size={14} />}
+                {selectMode ? "Отмена" : "Выбрать"}
               </button>
             </div>
           </div>
 
-          {listFilter === "saved" && savedSelectMode && (
-            <div className="dc-bulk-bar">
-              <span className="dc-bulk-count">Выбрано: {selectedSavedKeys.size}</span>
-              <div className="dc-bulk-actions">
-                <button type="button" className="dc-btn-small" onClick={() => setSelectedSavedKeys(allSavedSelected ? new Set() : new Set(savedInspiration.map((x) => x.key)))}>
-                  {allSavedSelected ? "Снять всё" : "Выбрать все"}
-                </button>
-                {selectedSavedKeys.size > 0 && (
-                  <button type="button" className="dc-btn-small dc-btn-danger" onClick={() => requestDeleteSavedBulk([...selectedSavedKeys])}>
-                    <Trash2 size={13} /> Удалить выбранные
-                  </button>
-                )}
-                {savedInspiration.length > 0 && (
-                  <button type="button" className="dc-btn-small dc-btn-danger" onClick={() => requestDeleteSavedBulk(savedInspiration.map((x) => x.key))}>
-                    <Trash2 size={13} /> Удалить все
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
 
           {listFilter !== "saved" && selectMode && (
             <div className="dc-bulk-bar">
@@ -1339,22 +1378,6 @@ export default function DailyChecklist() {
                     ))}
                   </div>
                 )}
-              </section>
-            ) : listFilter === "saved" ? (
-              <section className="dc-section dc-section-saved">
-                <div className="dc-section-head">
-                  <h2 className="dc-section-title"><Bookmark size={14} /> Сохранённые</h2>
-                  {!savedSelectMode && savedInspiration.length > 0 && (
-                    <button type="button" className="dc-link-btn" onClick={() => requestDeleteSavedBulk(savedInspiration.map((x) => x.key))}>Удалить все</button>
-                  )}
-                </div>
-                <SavedInspirationList
-                  items={savedInspiration}
-                  selectMode={savedSelectMode}
-                  selectedKeys={selectedSavedKeys}
-                  onToggleSelect={toggleSavedSelect}
-                  onRemove={removeSavedInspiration}
-                />
               </section>
             ) : (
               <>
@@ -2139,6 +2162,8 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-friend-bar-wrap{width:100%;height:5px;background:var(--ink-faint);border-radius:3px;overflow:hidden;margin-top:2px;}
 .dc-friend-bar{height:100%;border-radius:3px;transition:width .6s cubic-bezier(0.22,1,0.36,1);}
 .dc-friend-pct{font-size:12px;font-weight:600;}
+.dc-friend-seen{font-size:10px;color:var(--ink-soft);font-weight:400;}
+.dc-friend-day-label{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);margin-top:4px;}
 
 /* ── Completion modal ── */
 .dc-completion-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.65);display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;animation:dc-fade-in .2s ease both;}
