@@ -1103,20 +1103,23 @@ export default function DailyChecklist() {
     setPanelOpen(false);
   };
 
-  const saveAllBulk = (items) => {
+  const saveAllBulk = (items, localFolders) => {
     const todayD = todayStr();
-    const newFolders = [];
-    const newTasks = items.map((it) => {
-      const folder = it.folder || DEFAULT_FOLDER;
-      if (folder !== DEFAULT_FOLDER && !folders.includes(folder)) newFolders.push(folder);
-      return {
-        id: uid(), title: it.title.trim(), folder,
-        repeat: it.repeat || "daily", weekdays: [],
-        time: it.time || "", startDate: todayD, benefit: "",
-        completions: {}, dismissed: {},
-      };
-    });
-    if (newFolders.length) setFolders((prev) => [...prev, ...newFolders.filter((f) => !prev.includes(f))]);
+    // Merge any new folders created inside the bulk panel
+    if (localFolders?.length) {
+      setFolders((prev) => {
+        const merged = [...prev];
+        localFolders.forEach((f) => { if (!merged.includes(f)) merged.push(f); });
+        return merged;
+      });
+    }
+    const newTasks = items.map((it) => ({
+      id: uid(), title: it.title.trim(), folder: it.folder || DEFAULT_FOLDER,
+      repeat: it.repeat || "daily", weekdays: [],
+      time: it.time || "", startDate: todayD,
+      benefit: (it.benefit || "").trim(),
+      completions: {}, dismissed: {},
+    }));
     setTasks((prev) => [...prev, ...newTasks]);
   };
 
@@ -1586,15 +1589,23 @@ function TaskRow({ task, checked, onToggle, onEdit, onDelete, showFolder, inacti
 }
 
 // ─── Quick Bulk-Add Panel ────────────────────────────────────────────────────
-function BulkAddPanel({ folders, onClose, onSaveAll }) {
-  const [items, setItems] = useState([{ id: uid(), title: "", folder: DEFAULT_FOLDER, repeat: "daily", time: "" }]);
-  const [folderSheetIdx, setFolderSheetIdx] = useState(null); // which row is picking folder
+function BulkAddPanel({ folders: propFolders, onClose, onSaveAll }) {
+  const newItem = (prevItems) => ({
+    id: uid(), title: "", benefit: "",
+    folder: prevItems[prevItems.length - 1]?.folder || DEFAULT_FOLDER,
+    repeat: "daily", time: "",
+  });
+
+  const [items, setItems] = useState((prev) => [newItem([])]);
+  const [localFolders, setLocalFolders] = useState(propFolders);
+  const [folderSheetIdx, setFolderSheetIdx] = useState(null);
+  const [folderDraft, setFolderDraft] = useState("");
+  const [folderDraftOpen, setFolderDraftOpen] = useState(false);
 
   const updateItem = (id, patch) =>
     setItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
 
-  const addRow = () =>
-    setItems((prev) => [...prev, { id: uid(), title: "", folder: prev[prev.length - 1]?.folder || DEFAULT_FOLDER, repeat: "daily", time: "" }]);
+  const addRow = () => setItems((prev) => [...prev, newItem(prev)]);
 
   const removeRow = (id) =>
     setItems((prev) => prev.length > 1 ? prev.filter((it) => it.id !== id) : prev);
@@ -1602,25 +1613,40 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
   const handleSave = () => {
     const valid = items.filter((it) => it.title.trim());
     if (!valid.length) return;
-    onSaveAll(valid);
+    onSaveAll(valid, localFolders);
     onClose();
   };
 
   const activeRow = folderSheetIdx !== null ? items.find((it) => it.id === folderSheetIdx) : null;
+
+  const handleNewFolder = () => {
+    const name = folderDraft.trim();
+    if (!name || name === DEFAULT_FOLDER || localFolders.includes(name)) return;
+    setLocalFolders((prev) => [...prev, name]);
+    if (folderSheetIdx !== null) updateItem(folderSheetIdx, { folder: name });
+    setFolderDraft("");
+    setFolderDraftOpen(false);
+    setFolderSheetIdx(null);
+  };
 
   return (
     <>
       {folderSheetIdx !== null && (
         <FolderSheet
           open={true} onClose={() => setFolderSheetIdx(null)}
-          title="Папка" folders={folders} selected={activeRow?.folder || DEFAULT_FOLDER}
+          title="Выбрать папку"
+          folders={localFolders}
+          selected={activeRow?.folder || DEFAULT_FOLDER}
           onSelect={(name) => { updateItem(folderSheetIdx, { folder: name }); setFolderSheetIdx(null); }}
-          showCounts={false} folderTaskCount={() => 0} allowManage={false}
-          folderDraft="" setFolderDraft={() => {}} folderDraftOpen={false}
-          setFolderDraftOpen={() => {}} onAddFolder={() => {}} onNewFolder={() => {}}
+          showCounts={false} folderTaskCount={() => 0}
+          allowManage={true}
+          folderDraft={folderDraft} setFolderDraft={setFolderDraft}
+          folderDraftOpen={folderDraftOpen} setFolderDraftOpen={setFolderDraftOpen}
+          onAddFolder={handleNewFolder} onNewFolder={handleNewFolder}
           onDeleteFolder={() => {}} onDeleteAllFolders={() => {}}
         />
       )}
+
       <div className="dc-overlay" onClick={onClose}>
         <div className="dc-card" onClick={(e) => e.stopPropagation()}>
           <div className="dc-card-head">
@@ -1628,7 +1654,7 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
             <button type="button" className="dc-icon-ghost" onClick={onClose}><X size={18} /></button>
           </div>
           <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "0 0 12px" }}>
-            Добавьте несколько задач сразу в разные папки
+            Несколько задач сразу — в разные папки
           </p>
 
           <div className="dc-bulk-rows">
@@ -1636,6 +1662,7 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
               <div className="dc-bulk-row-item" key={it.id}>
                 <div className="dc-bulk-row-num">{idx + 1}</div>
                 <div className="dc-bulk-row-body">
+                  {/* Title */}
                   <input
                     className="dc-input dc-bulk-title-input"
                     placeholder="Название задачи"
@@ -1644,6 +1671,14 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
                     onChange={(e) => updateItem(it.id, { title: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") addRow(); }}
                   />
+                  {/* Benefit */}
+                  <input
+                    className="dc-input dc-bulk-benefit-input"
+                    placeholder="Польза (необязательно)"
+                    value={it.benefit}
+                    onChange={(e) => updateItem(it.id, { benefit: e.target.value })}
+                  />
+                  {/* Chips row */}
                   <div className="dc-bulk-row-meta">
                     <button type="button" className="dc-bulk-chip dc-bulk-folder-chip"
                       onClick={() => setFolderSheetIdx(it.id)}>
@@ -1663,15 +1698,14 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
                     </select>
                     <input
                       className="dc-bulk-chip dc-bulk-time-chip"
-                      type="time"
-                      value={it.time}
+                      type="time" value={it.time}
                       onChange={(e) => updateItem(it.id, { time: e.target.value })}
-                      placeholder="Время"
                     />
                   </div>
                 </div>
                 {items.length > 1 && (
-                  <button type="button" className="dc-icon-ghost" style={{ color: "var(--red)", minWidth: 36 }}
+                  <button type="button" className="dc-icon-ghost"
+                    style={{ color: "var(--red)", minWidth: 36, marginTop: 4 }}
                     onClick={() => removeRow(it.id)}>
                     <X size={16} />
                   </button>
@@ -1681,14 +1715,14 @@ function BulkAddPanel({ folders, onClose, onSaveAll }) {
           </div>
 
           <button type="button" className="dc-btn-ghost dc-bulk-add-more" onClick={addRow}>
-            <Plus size={15} /> Добавить строку
+            <Plus size={15} /> Добавить ещё задачу
           </button>
 
           <div className="dc-card-foot">
             <button type="button" className="dc-btn-ghost" onClick={onClose}>Отмена</button>
             <button type="button" className="dc-btn-primary" onClick={handleSave}
               disabled={!items.some((it) => it.title.trim())}>
-              <Check size={15} /> Сохранить {items.filter(it => it.title.trim()).length || ""} задач
+              <Check size={15} /> Сохранить {items.filter((it) => it.title.trim()).length || ""} задач
             </button>
           </div>
         </div>
@@ -2259,6 +2293,7 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-bulk-row-num{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);min-width:16px;margin-top:12px;text-align:right;}
 .dc-bulk-row-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
 .dc-bulk-title-input{font-size:14px;font-weight:600;padding:8px 10px;background:var(--paper-light);}
+.dc-bulk-benefit-input{font-size:12px;padding:6px 10px;background:var(--paper-light);color:var(--ink-soft);font-style:italic;}
 .dc-bulk-row-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
 .dc-bulk-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:20px;font-size:11.5px;font-family:var(--font-body);cursor:pointer;border:1.5px solid var(--ink-faint);background:var(--paper-light);color:var(--ink);white-space:nowrap;min-height:32px;transition:all .14s ease;}
 .dc-bulk-chip:active{transform:scale(0.95);}
