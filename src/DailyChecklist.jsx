@@ -774,11 +774,10 @@ export default function DailyChecklist() {
   }, []);
 
   const dismissOverdue = useCallback((taskId, date) => {
-    const todayD = todayStr();
     setTasks((prev) => prev.map((t) => {
       if (t.id !== taskId) return t;
-      // Dismiss the overdue date AND today so the task doesn't reappear in Сегодня
-      return { ...t, dismissed: { ...t.dismissed, [date]: true, [todayD]: true } };
+      // Only dismiss the specific overdue date; task reappears in Today/Incomplete after dismissal
+      return { ...t, dismissed: { ...t.dismissed, [date]: true } };
     }));
   }, []);
 
@@ -1116,7 +1115,7 @@ export default function DailyChecklist() {
     const newTasks = items.map((it) => ({
       id: uid(), title: it.title.trim(), folder: it.folder || DEFAULT_FOLDER,
       repeat: it.repeat || "daily", weekdays: [],
-      time: it.time || "", startDate: todayD,
+      time: "", startDate: it.startDate || todayD,
       benefit: (it.benefit || "").trim(),
       completions: {}, dismissed: {},
     }));
@@ -1593,7 +1592,7 @@ function BulkAddPanel({ folders: propFolders, onClose, onSaveAll }) {
   const newItem = (prevItems) => ({
     id: uid(), title: "", benefit: "",
     folder: prevItems[prevItems.length - 1]?.folder || DEFAULT_FOLDER,
-    repeat: "daily", time: "",
+    repeat: "daily", startDate: "",
   });
 
   const [items, setItems] = useState((prev) => [newItem([])]);
@@ -1698,8 +1697,8 @@ function BulkAddPanel({ folders: propFolders, onClose, onSaveAll }) {
                     </select>
                     <input
                       className="dc-bulk-chip dc-bulk-time-chip"
-                      type="time" value={it.time}
-                      onChange={(e) => updateItem(it.id, { time: e.target.value })}
+                      type="date" value={it.startDate}
+                      onChange={(e) => updateItem(it.id, { startDate: e.target.value })}
                     />
                   </div>
                 </div>
