@@ -663,6 +663,7 @@ export default function DailyChecklist() {
   const [userProfile, setUserProfile] = useState(null); // { displayName, username }
   const [profileOpen, setProfileOpen] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const prevAllDoneRef = useRef(false);
 
   const [view, setView] = useState("checklist");
@@ -1097,6 +1098,23 @@ export default function DailyChecklist() {
     setPanelOpen(false);
   };
 
+  const saveAllBulk = (items) => {
+    const todayD = todayStr();
+    const newFolders = [];
+    const newTasks = items.map((it) => {
+      const folder = it.folder || DEFAULT_FOLDER;
+      if (folder !== DEFAULT_FOLDER && !folders.includes(folder)) newFolders.push(folder);
+      return {
+        id: uid(), title: it.title.trim(), folder,
+        repeat: it.repeat || "daily", weekdays: [],
+        time: it.time || "", startDate: todayD, benefit: "",
+        completions: {}, dismissed: {},
+      };
+    });
+    if (newFolders.length) setFolders((prev) => [...prev, ...newFolders.filter((f) => !prev.includes(f))]);
+    setTasks((prev) => [...prev, ...newTasks]);
+  };
+
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
       const n = new Set(prev);
@@ -1127,12 +1145,17 @@ export default function DailyChecklist() {
     return list;
   }, [tasks, folderFilter, searchQuery]);
 
+  // IDs of tasks that have at least one overdue (past uncompleted) instance
+  const overdueTaskIds = useMemo(() => new Set(overdueList.map(({ task }) => task.id)), [overdueList]);
+
   const todayTasks = useMemo(() => {
-    let list = baseTasks.filter((t) => isScheduledOn(t, today))
+    let list = baseTasks
+      .filter((t) => isScheduledOn(t, today))
+      .filter((t) => !overdueTaskIds.has(t.id)) // overdue tasks go to Просроченные only
       .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
     if (listFilter === "incomplete") list = list.filter((t) => !t.completions[today]);
     return list;
-  }, [baseTasks, today, listFilter]);
+  }, [baseTasks, today, listFilter, overdueTaskIds]);
 
   const otherTasks = useMemo(
     () => baseTasks.filter((t) => !isScheduledOn(t, today)).sort((a, b) => a.title.localeCompare(b.title)),
@@ -1247,6 +1270,7 @@ export default function DailyChecklist() {
             </button>
           </div>
           <button className="dc-btn-primary" onClick={openAddPanel}><Plus size={16} /> Задача</button>
+          <button className="dc-icon-ghost" title="Добавить несколько задач" onClick={() => setBulkAddOpen(true)}><ListChecks size={16} /></button>
           <button className="dc-icon-ghost" title="Очистить всё" onClick={() => setConfirmReset(true)}><RotateCcw size={15} /></button>
         </div>
       </header>
@@ -1455,6 +1479,14 @@ export default function DailyChecklist() {
         />
       )}
 
+      {bulkAddOpen && (
+        <BulkAddPanel
+          folders={userFolders}
+          onClose={() => setBulkAddOpen(false)}
+          onSaveAll={saveAllBulk}
+        />
+      )}
+
       {panelOpen && (
         <AddTaskPanel form={form} setForm={setForm} folders={userFolders} onClose={() => setPanelOpen(false)} onSave={saveTask} />
       )}
@@ -1543,6 +1575,118 @@ function TaskRow({ task, checked, onToggle, onEdit, onDelete, showFolder, inacti
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Quick Bulk-Add Panel ────────────────────────────────────────────────────
+function BulkAddPanel({ folders, onClose, onSaveAll }) {
+  const [items, setItems] = useState([{ id: uid(), title: "", folder: DEFAULT_FOLDER, repeat: "daily", time: "" }]);
+  const [folderSheetIdx, setFolderSheetIdx] = useState(null); // which row is picking folder
+
+  const updateItem = (id, patch) =>
+    setItems((prev) => prev.map((it) => it.id === id ? { ...it, ...patch } : it));
+
+  const addRow = () =>
+    setItems((prev) => [...prev, { id: uid(), title: "", folder: prev[prev.length - 1]?.folder || DEFAULT_FOLDER, repeat: "daily", time: "" }]);
+
+  const removeRow = (id) =>
+    setItems((prev) => prev.length > 1 ? prev.filter((it) => it.id !== id) : prev);
+
+  const handleSave = () => {
+    const valid = items.filter((it) => it.title.trim());
+    if (!valid.length) return;
+    onSaveAll(valid);
+    onClose();
+  };
+
+  const activeRow = folderSheetIdx !== null ? items.find((it) => it.id === folderSheetIdx) : null;
+
+  return (
+    <>
+      {folderSheetIdx !== null && (
+        <FolderSheet
+          open={true} onClose={() => setFolderSheetIdx(null)}
+          title="Папка" folders={folders} selected={activeRow?.folder || DEFAULT_FOLDER}
+          onSelect={(name) => { updateItem(folderSheetIdx, { folder: name }); setFolderSheetIdx(null); }}
+          showCounts={false} folderTaskCount={() => 0} allowManage={false}
+          folderDraft="" setFolderDraft={() => {}} folderDraftOpen={false}
+          setFolderDraftOpen={() => {}} onAddFolder={() => {}} onNewFolder={() => {}}
+          onDeleteFolder={() => {}} onDeleteAllFolders={() => {}}
+        />
+      )}
+      <div className="dc-overlay" onClick={onClose}>
+        <div className="dc-card" onClick={(e) => e.stopPropagation()}>
+          <div className="dc-card-head">
+            <h2>Быстрое добавление</h2>
+            <button type="button" className="dc-icon-ghost" onClick={onClose}><X size={18} /></button>
+          </div>
+          <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "0 0 12px" }}>
+            Добавьте несколько задач сразу в разные папки
+          </p>
+
+          <div className="dc-bulk-rows">
+            {items.map((it, idx) => (
+              <div className="dc-bulk-row-item" key={it.id}>
+                <div className="dc-bulk-row-num">{idx + 1}</div>
+                <div className="dc-bulk-row-body">
+                  <input
+                    className="dc-input dc-bulk-title-input"
+                    placeholder="Название задачи"
+                    value={it.title}
+                    autoFocus={idx === items.length - 1}
+                    onChange={(e) => updateItem(it.id, { title: e.target.value })}
+                    onKeyDown={(e) => { if (e.key === "Enter") addRow(); }}
+                  />
+                  <div className="dc-bulk-row-meta">
+                    <button type="button" className="dc-bulk-chip dc-bulk-folder-chip"
+                      onClick={() => setFolderSheetIdx(it.id)}>
+                      <span className="dc-dot" style={{ background: folderColor(it.folder) }} />
+                      {displayFolder(it.folder) || it.folder}
+                      <ChevronDown size={12} />
+                    </button>
+                    <select
+                      className="dc-bulk-chip dc-bulk-repeat-chip"
+                      value={it.repeat}
+                      onChange={(e) => updateItem(it.id, { repeat: e.target.value })}
+                    >
+                      <option value="daily">Ежедневно</option>
+                      <option value="once">Один раз</option>
+                      <option value="everyOther">Через день</option>
+                      <option value="weekly">По дням</option>
+                    </select>
+                    <input
+                      className="dc-bulk-chip dc-bulk-time-chip"
+                      type="time"
+                      value={it.time}
+                      onChange={(e) => updateItem(it.id, { time: e.target.value })}
+                      placeholder="Время"
+                    />
+                  </div>
+                </div>
+                {items.length > 1 && (
+                  <button type="button" className="dc-icon-ghost" style={{ color: "var(--red)", minWidth: 36 }}
+                    onClick={() => removeRow(it.id)}>
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button type="button" className="dc-btn-ghost dc-bulk-add-more" onClick={addRow}>
+            <Plus size={15} /> Добавить строку
+          </button>
+
+          <div className="dc-card-foot">
+            <button type="button" className="dc-btn-ghost" onClick={onClose}>Отмена</button>
+            <button type="button" className="dc-btn-primary" onClick={handleSave}
+              disabled={!items.some((it) => it.title.trim())}>
+              <Check size={15} /> Сохранить {items.filter(it => it.title.trim()).length || ""} задач
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -2101,6 +2245,20 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-picker-btn{display:flex!important;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer;appearance:none;-webkit-appearance:none;}
 .dc-picker-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dc-folder-new{display:flex;flex-direction:column;gap:8px;width:100%;}
+
+/* ── Bulk-add panel ── */
+.dc-bulk-rows{display:flex;flex-direction:column;gap:10px;max-height:55dvh;overflow-y:auto;padding-right:2px;}
+.dc-bulk-row-item{display:flex;align-items:flex-start;gap:8px;background:var(--paper-dark);border-radius:12px;padding:10px 10px 10px 12px;animation:dc-slide-in .22s cubic-bezier(0.22,1,0.36,1) both;}
+.dc-bulk-row-num{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);min-width:16px;margin-top:12px;text-align:right;}
+.dc-bulk-row-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+.dc-bulk-title-input{font-size:14px;font-weight:600;padding:8px 10px;background:var(--paper-light);}
+.dc-bulk-row-meta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+.dc-bulk-chip{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:20px;font-size:11.5px;font-family:var(--font-body);cursor:pointer;border:1.5px solid var(--ink-faint);background:var(--paper-light);color:var(--ink);white-space:nowrap;min-height:32px;transition:all .14s ease;}
+.dc-bulk-chip:active{transform:scale(0.95);}
+.dc-bulk-folder-chip{font-weight:600;}
+.dc-bulk-repeat-chip{appearance:none;-webkit-appearance:none;padding-right:10px;}
+.dc-bulk-time-chip{width:90px;padding:5px 8px;text-align:center;}
+.dc-bulk-add-more{width:100%;justify-content:center;margin:10px 0 0;border-style:dashed;}
 
 /* ── Header top row with avatar ── */
 .dc-header-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
