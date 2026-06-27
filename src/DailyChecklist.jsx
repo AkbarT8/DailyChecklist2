@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   Plus, Check, X, FolderPlus, Clock, Trash2, Pencil, ChevronLeft, ChevronRight,
   AlertTriangle, ListChecks, TrendingUp, SkipForward, RotateCcw, ChevronDown,
-  Folder, CheckSquare, Square, Search, CheckCheck, MoveRight, Bookmark, ChevronRight as ChevronNext
+  Folder, CheckSquare, Square, Search, CheckCheck, MoveRight, Bookmark, ChevronRight as ChevronNext,
+  Camera, Users, UserCheck, Star
 } from "lucide-react";
 import { QURAN_AYAT, HADITHS, INSPIRATION_META } from "./inspirationData.js";
 import {
@@ -18,6 +19,7 @@ import {
 import { requestNotificationPermission, showDailyReminder, scheduleDailyReminder, registerReminderWorker } from "./dailyReminder.js";
 
 const USER_PROFILE_KEY = "checklist-user-profile";
+const AVATAR_KEY = "checklist-avatar";
 
 const pad = (n) => String(n).padStart(2, "0");
 const formatLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -241,6 +243,204 @@ async function registerUsername(username, displayName) {
   }
 }
 
+// ─── Sync today's stats to Supabase so friends can see them ─────────────────
+async function syncStatsToSupabase(username, todayDate, done, total) {
+  if (!SB_URL || !SB_KEY || !username) return;
+  try {
+    await fetch(`${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(username)}`, {
+      method: "PATCH",
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ today_date: todayDate, today_done: done, today_total: total, last_seen: new Date().toISOString() }),
+    });
+  } catch { /* offline – ignore */ }
+}
+
+// ─── Small avatar circle (used in header) ───────────────────────────────────
+function AvatarCircle({ displayName, size = 36, onClick }) {
+  const [avatarData] = useState(() => localStorage.getItem(AVATAR_KEY));
+  const initials = (displayName || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  return (
+    <button
+      className="dc-avatar-btn"
+      style={{ width: size, height: size }}
+      onClick={onClick}
+      aria-label="Профиль"
+    >
+      {avatarData
+        ? <img src={avatarData} alt="avatar" className="dc-avatar-img" style={{ width: size, height: size }} />
+        : <span className="dc-avatar-initials" style={{ fontSize: size * 0.36 }}>{initials}</span>
+      }
+    </button>
+  );
+}
+
+// ─── Friend card ─────────────────────────────────────────────────────────────
+function FriendCard({ friend, today }) {
+  const isToday = friend.today_date === today;
+  const pct = isToday && friend.today_total > 0 ? Math.round((friend.today_done / friend.today_total) * 100) : null;
+  const ini = (friend.display_name || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  const statusColor = pct === 100 ? "var(--accent)" : pct !== null ? "var(--gold)" : "var(--ink-faint)";
+  return (
+    <div className="dc-friend-card">
+      <div className="dc-avatar-medium">
+        <span className="dc-avatar-ini-m">{ini}</span>
+        <span className="dc-friend-status-dot" style={{ background: statusColor }} />
+      </div>
+      <div className="dc-friend-info">
+        <div className="dc-friend-name">{friend.display_name}</div>
+        <div className="dc-friend-un">@{friend.username}</div>
+        {pct !== null ? (
+          <>
+            <div className="dc-friend-bar-wrap">
+              <div className="dc-friend-bar" style={{ width: `${pct}%`, background: statusColor }} />
+            </div>
+            <div className="dc-friend-pct" style={{ color: statusColor }}>
+              {pct === 100 ? "✅ Все выполнено!" : `${pct}% выполнено сегодня (${friend.today_done}/${friend.today_total})`}
+            </div>
+          </>
+        ) : (
+          <div className="dc-friend-pct" style={{ color: "var(--ink-soft)" }}>Нет данных на сегодня</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Profile sheet ───────────────────────────────────────────────────────────
+function ProfileSheet({ open, onClose, userProfile, todayStats, today }) {
+  const [tab, setTab] = useState("profile");
+  const [avatarData, setAvatarData] = useState(() => localStorage.getItem(AVATAR_KEY));
+  const [friendInput, setFriendInput] = useState("");
+  const [friend, setFriend] = useState(null);
+  const [fLoading, setFLoading] = useState(false);
+  const [fError, setFError] = useState("");
+
+  const handleAvatarPick = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const data = ev.target.result;
+      localStorage.setItem(AVATAR_KEY, data);
+      setAvatarData(data);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const searchFriend = async () => {
+    const un = friendInput.trim().toLowerCase().replace(/^@/, "");
+    if (!un) return;
+    if (un === userProfile?.username) { setFError("Это вы 😄"); return; }
+    setFLoading(true); setFError(""); setFriend(null);
+    try {
+      const res = await fetch(
+        `${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(un)}&select=username,display_name,today_date,today_done,today_total,last_seen&limit=1`,
+        { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } }
+      );
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) setFriend(data[0]);
+      else setFError("Пользователь не найден");
+    } catch { setFError("Ошибка сети — проверьте подключение"); }
+    setFLoading(false);
+  };
+
+  if (!open) return null;
+
+  const initials = (userProfile?.displayName || "?").split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  const pct = todayStats.total > 0 ? Math.round((todayStats.done / todayStats.total) * 100) : 0;
+
+  return (
+    <>
+      <div className="dc-sheet-backdrop" onClick={onClose} />
+      <div className="dc-sheet dc-profile-sheet">
+        <div className="dc-sheet-handle" />
+        <div className="dc-profile-tabs">
+          <button className={`dc-ptab ${tab === "profile" ? "active" : ""}`} onClick={() => setTab("profile")}>
+            <Star size={14} /> Профиль
+          </button>
+          <button className={`dc-ptab ${tab === "friends" ? "active" : ""}`} onClick={() => setTab("friends")}>
+            <Users size={14} /> Друзья
+          </button>
+        </div>
+
+        {tab === "profile" && (
+          <div className="dc-profile-body">
+            <label className="dc-avatar-big" htmlFor="dc-avatar-file">
+              {avatarData
+                ? <img src={avatarData} alt="avatar" className="dc-avatar-img-big" />
+                : <span className="dc-avatar-ini-b">{initials}</span>
+              }
+              <div className="dc-avatar-edit"><Camera size={18} /></div>
+            </label>
+            <input id="dc-avatar-file" type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarPick} />
+            <div className="dc-profile-name">{userProfile?.displayName}</div>
+            <div className="dc-profile-un">@{userProfile?.username}</div>
+            <div className="dc-profile-stats-row">
+              <div className="dc-pstat">
+                <div className="dc-pstat-val">{pct}%</div>
+                <div className="dc-pstat-lbl">Сегодня</div>
+              </div>
+              <div className="dc-pstat-div" />
+              <div className="dc-pstat">
+                <div className="dc-pstat-val">{todayStats.done}/{todayStats.total}</div>
+                <div className="dc-pstat-lbl">Задач</div>
+              </div>
+            </div>
+            {pct > 0 && (
+              <div className="dc-profile-bar-wrap">
+                <div className="dc-profile-bar" style={{ width: `${pct}%` }} />
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "friends" && (
+          <div className="dc-friends-body">
+            <p className="dc-friends-hint">Введите юзернейм друга, чтобы увидеть его прогресс сегодня</p>
+            <div className="dc-friends-search-row">
+              <div className="dc-search-wrap" style={{ flex: 1 }}>
+                <span style={{ color: "var(--ink-soft)", marginRight: 2, fontSize: 15 }}>@</span>
+                <input className="dc-search" placeholder="username" value={friendInput}
+                  onChange={(e) => setFriendInput(e.target.value.toLowerCase().replace(/^@/, ""))}
+                  onKeyDown={(e) => e.key === "Enter" && searchFriend()} />
+              </div>
+              <button className="dc-btn-primary" onClick={searchFriend} disabled={fLoading} style={{ minWidth: 44, padding: "0 14px" }}>
+                {fLoading ? "…" : <Search size={16} />}
+              </button>
+            </div>
+            {fError && <div className="dc-setup-error">{fError}</div>}
+            {friend && <FriendCard friend={friend} today={today} />}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── All-tasks-done celebration modal ────────────────────────────────────────
+function CompletionModal({ onClose, displayName }) {
+  return (
+    <div className="dc-completion-overlay" onClick={onClose}>
+      <div className="dc-completion-box" onClick={(e) => e.stopPropagation()}>
+        <div className="dc-completion-stars">✨🌟✨</div>
+        <div className="dc-completion-ar">بَارَكَ اللَّهُ فِيكَ</div>
+        <div className="dc-completion-title">МашаАллах, {displayName}!</div>
+        <div className="dc-completion-text">
+          Да благословит вас Аллах за все задачи, и пусть все ваши деяния примутся. Ин Ша Аллах.
+        </div>
+        <button className="dc-btn-primary dc-completion-btn" onClick={onClose}>
+          Альхамдулиллах 🤲
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UserSetupScreen({ onComplete }) {
   const [displayName, setDisplayName] = useState("");
   const [username, setUsername] = useState("");
@@ -386,6 +586,9 @@ export default function DailyChecklist() {
   const [dailyBannerOpen, setDailyBannerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [userProfile, setUserProfile] = useState(null); // { displayName, username }
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const prevAllDoneRef = useRef(false);
 
   const [view, setView] = useState("checklist");
   const [listFilter, setListFilter] = useState("all");
@@ -889,6 +1092,25 @@ export default function DailyChecklist() {
     setReminderLastDate(today);
   }, [loaded, entered, userProfile, today, reminderLastDate]);
 
+  // Detect all tasks done → celebration modal
+  useEffect(() => {
+    if (!loaded || !entered || !userProfile) return;
+    const allDone = todayStats.total > 0 && todayStats.done === todayStats.total;
+    if (allDone && !prevAllDoneRef.current) {
+      setShowCompletionModal(true);
+    }
+    prevAllDoneRef.current = allDone;
+  }, [todayStats.done, todayStats.total, loaded, entered, userProfile]);
+
+  // Sync stats to Supabase (debounced 3s) so friends can see
+  useEffect(() => {
+    if (!loaded || !userProfile?.username) return;
+    const t = setTimeout(() => {
+      syncStatsToSupabase(userProfile.username, today, todayStats.done, todayStats.total);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [todayStats.done, todayStats.total, loaded, userProfile, today]);
+
   const handleUserSetupComplete = async (profile) => {
     localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
     setUserProfile(profile);
@@ -931,9 +1153,12 @@ export default function DailyChecklist() {
       <style>{STYLES}</style>
 
       <header className="dc-header">
-        <div className="dc-header-left">
-          <h1 className="dc-title">Ежедневник</h1>
-          <div className="dc-subtitle">{userProfile?.displayName && <span className="dc-subtitle-user">@{userProfile.username} · </span>}{formatDisplay(today)} · {todayStats.done}/{todayStats.total} сегодня</div>
+        <div className="dc-header-top-row">
+          <div className="dc-header-left">
+            <h1 className="dc-title">Ежедневник</h1>
+            <div className="dc-subtitle">{formatDisplay(today)} · {todayStats.done}/{todayStats.total} сегодня</div>
+          </div>
+          <AvatarCircle displayName={userProfile?.displayName} onClick={() => setProfileOpen(true)} />
         </div>
         <div className="dc-header-actions">
           <div className="dc-segmented">
@@ -1184,6 +1409,23 @@ export default function DailyChecklist() {
       {view === "progress" && (
         <ProgressView tasks={tasks} today={today} overdueCount={overdueList.length}
           period={period} setPeriod={setPeriod} monthCursor={monthCursor} setMonthCursor={setMonthCursor} />
+      )}
+
+      {profileOpen && (
+        <ProfileSheet
+          open={profileOpen}
+          onClose={() => setProfileOpen(false)}
+          userProfile={userProfile}
+          todayStats={todayStats}
+          today={today}
+        />
+      )}
+
+      {showCompletionModal && (
+        <CompletionModal
+          onClose={() => setShowCompletionModal(false)}
+          displayName={userProfile?.displayName}
+        />
       )}
 
       {panelOpen && (
@@ -1832,4 +2074,76 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-picker-btn{display:flex!important;align-items:center;justify-content:space-between;gap:8px;text-align:left;cursor:pointer;appearance:none;-webkit-appearance:none;}
 .dc-picker-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .dc-folder-new{display:flex;flex-direction:column;gap:8px;width:100%;}
+
+/* ── Header top row with avatar ── */
+.dc-header-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+
+/* ── Avatar button (header) ── */
+.dc-avatar-btn{
+  border:none;padding:0;cursor:pointer;
+  border-radius:50%;overflow:hidden;
+  background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;
+  box-shadow:0 2px 8px rgba(47,82,51,0.3);
+  transition:transform .18s cubic-bezier(0.34,1.56,0.64,1),box-shadow .18s ease;
+  touch-action:manipulation;
+}
+.dc-avatar-btn:active{transform:scale(0.9);}
+.dc-avatar-img{border-radius:50%;object-fit:cover;display:block;}
+.dc-avatar-initials{color:#fff;font-weight:700;font-family:var(--font-display);display:block;line-height:1;}
+
+/* ── Profile sheet ── */
+.dc-profile-sheet{max-height:88dvh;}
+.dc-sheet-handle{width:36px;height:4px;background:var(--ink-faint);border-radius:2px;margin:10px auto 0;}
+.dc-profile-tabs{display:flex;gap:0;padding:12px 16px 0;border-bottom:1.5px solid var(--ink-faint);}
+.dc-ptab{flex:1;border:none;background:transparent;padding:10px;font-family:var(--font-body);font-size:13.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;border-bottom:2.5px solid transparent;margin-bottom:-1.5px;transition:color .18s,border-color .18s;}
+.dc-ptab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.dc-profile-body{display:flex;flex-direction:column;align-items:center;gap:10px;padding:20px 16px 24px;}
+.dc-avatar-big{
+  width:88px;height:88px;border-radius:50%;overflow:hidden;
+  background:var(--accent);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;position:relative;
+  box-shadow:0 4px 16px rgba(47,82,51,0.25);
+  flex-shrink:0;
+  transition:transform .18s ease;
+}
+.dc-avatar-big:active{transform:scale(0.95);}
+.dc-avatar-img-big{width:88px;height:88px;object-fit:cover;border-radius:50%;display:block;}
+.dc-avatar-ini-b{color:#fff;font-size:30px;font-weight:700;font-family:var(--font-display);display:block;}
+.dc-avatar-edit{position:absolute;bottom:0;right:0;width:28px;height:28px;background:var(--gold);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 1px 4px rgba(0,0,0,0.2);}
+.dc-profile-name{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--ink);margin-top:4px;}
+.dc-profile-un{font-family:var(--font-mono);font-size:12px;color:var(--ink-soft);}
+.dc-profile-stats-row{display:flex;align-items:center;gap:0;background:var(--paper-dark);border-radius:14px;padding:14px 24px;width:100%;max-width:280px;justify-content:center;margin-top:6px;}
+.dc-pstat{display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;}
+.dc-pstat-val{font-family:var(--font-display);font-size:22px;font-weight:700;color:var(--ink);}
+.dc-pstat-lbl{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;color:var(--ink-soft);}
+.dc-pstat-div{width:1.5px;height:36px;background:var(--ink-faint);margin:0 10px;}
+.dc-profile-bar-wrap{width:100%;max-width:280px;height:6px;background:var(--ink-faint);border-radius:3px;overflow:hidden;}
+.dc-profile-bar{height:100%;background:var(--accent);border-radius:3px;transition:width .5s cubic-bezier(0.22,1,0.36,1);}
+
+/* ── Friends tab ── */
+.dc-friends-body{display:flex;flex-direction:column;gap:12px;padding:14px 16px 20px;}
+.dc-friends-hint{font-size:13px;color:var(--ink-soft);margin:0;text-align:center;line-height:1.5;}
+.dc-friends-search-row{display:flex;gap:8px;align-items:center;}
+.dc-avatar-medium{width:52px;height:52px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;}
+.dc-avatar-ini-m{color:#fff;font-weight:700;font-family:var(--font-display);font-size:18px;}
+.dc-friend-status-dot{width:13px;height:13px;border-radius:50%;border:2.5px solid var(--paper-light);position:absolute;bottom:1px;right:1px;}
+.dc-friend-card{display:flex;gap:14px;align-items:center;background:var(--paper-dark);border-radius:14px;padding:14px;animation:dc-slide-in .25s cubic-bezier(0.22,1,0.36,1) both;}
+.dc-friend-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px;}
+.dc-friend-name{font-size:15px;font-weight:700;color:var(--ink);}
+.dc-friend-un{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);}
+.dc-friend-bar-wrap{width:100%;height:5px;background:var(--ink-faint);border-radius:3px;overflow:hidden;margin-top:2px;}
+.dc-friend-bar{height:100%;border-radius:3px;transition:width .6s cubic-bezier(0.22,1,0.36,1);}
+.dc-friend-pct{font-size:12px;font-weight:600;}
+
+/* ── Completion modal ── */
+.dc-completion-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.65);display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;animation:dc-fade-in .2s ease both;}
+.dc-completion-box{background:var(--paper-light);border-radius:22px;padding:28px 22px;max-width:360px;width:100%;text-align:center;display:flex;flex-direction:column;gap:10px;align-items:center;box-shadow:0 16px 56px rgba(0,0,0,0.25);animation:dc-bounce-in .45s cubic-bezier(0.22,1,0.36,1) both;}
+.dc-completion-stars{font-size:36px;line-height:1;animation:dc-check-pop .5s cubic-bezier(0.34,1.56,0.64,1) both;}
+.dc-completion-ar{font-family:var(--font-display);font-size:22px;color:var(--accent);direction:rtl;line-height:1.5;margin:4px 0;}
+.dc-completion-title{font-family:var(--font-display);font-size:20px;font-weight:700;color:var(--ink);}
+.dc-completion-text{font-size:14px;color:var(--ink-soft);line-height:1.6;max-width:280px;}
+.dc-completion-btn{width:100%;justify-content:center;font-size:15px;min-height:50px;margin-top:6px;border-radius:14px;}
 `;
