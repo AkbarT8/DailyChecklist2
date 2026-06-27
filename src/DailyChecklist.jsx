@@ -479,7 +479,7 @@ function UserSetupScreen({ onComplete }) {
         <div className="dc-setup-fields">
           <div className="dc-field">
             <label>Ваше имя</label>
-            <input className="dc-input" placeholder="Например: Акбар" value={displayName}
+            <input className="dc-input" placeholder="" value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
           </div>
@@ -487,7 +487,7 @@ function UserSetupScreen({ onComplete }) {
             <label>Юзернейм (латиница, уникальный)</label>
             <div className="dc-username-wrap">
               <span className="dc-username-at">@</span>
-              <input className="dc-input dc-username-input" placeholder="akbar123" value={username}
+              <input className="dc-input dc-username-input" placeholder="" value={username}
                 onChange={(e) => setUsername(sanitize(e.target.value))}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 maxLength={24} />
@@ -766,11 +766,13 @@ export default function DailyChecklist() {
     });
   };
 
-  const enterApp = async () => {
+  const enterApp = () => {
     try { sessionStorage.setItem(WELCOME_KEY, "1"); } catch { /* ignore */ }
-    registerReminderWorker();
-    await requestNotificationPermission();
-    setEntered(true);
+    setEntered(true); // enter immediately — don't block on notification permission
+    setTimeout(() => {
+      try { registerReminderWorker(); } catch { /* ignore */ }
+      requestNotificationPermission().catch(() => {});
+    }, 500);
   };
 
   const closeConfirm = () => setConfirmModal(null);
