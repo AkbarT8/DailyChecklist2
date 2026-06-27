@@ -207,9 +207,11 @@ function FolderSheet({ open, onClose, title, folders, selected, onSelect, showCo
   );
 }
 
-// ─── Username uniqueness check via Supabase REST ─────────────────────────────
-const SB_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// ─── Supabase connection ──────────────────────────────────────────────────────
+const SB_URL = import.meta.env.VITE_SUPABASE_URL
+  || "https://aekmyfntqdoykuvcocfe.supabase.co";
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+  || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFla215Zm50cWRveWt1dmNvY2ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk0NTQ4ODQsImV4cCI6MjA5NTAzMDg4NH0.MF5aLiQM-wN69hbPZK8z90Y7ZqpR5Nx3CX6Tpnk0sxA";
 
 async function checkUsernameAvailable(username) {
   if (!SB_URL || !SB_KEY) return true; // No backend — skip check
