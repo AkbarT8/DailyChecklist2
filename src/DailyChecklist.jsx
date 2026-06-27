@@ -1406,8 +1406,7 @@ export default function DailyChecklist() {
                           </div>
                         </div>
                         <div className="dc-overdue-actions">
-                          <button className="dc-icon-ghost" title="Выполнить" onClick={() => toggleCompletion(task.id, date)}><Check size={15} /></button>
-                          <button className="dc-icon-ghost" title="Пропустить" onClick={() => requestDismissOverdue(task, date)}><SkipForward size={15} /></button>
+                          <button className="dc-btn-delete" onClick={() => setTasks((prev) => prev.filter((t) => t.id !== task.id))}>Удалить</button>
                         </div>
                       </div>
                     ))}
@@ -2210,6 +2209,8 @@ body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 .dc-overdue-title{font-size:13px;font-weight:600;}
 .dc-overdue-meta{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--ink-soft);margin-top:2px;}
 .dc-overdue-actions{display:flex;gap:2px;}
+.dc-btn-delete{padding:5px 12px;border-radius:8px;border:none;background:rgba(239,68,68,.12);color:#ef4444;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s;}
+.dc-btn-delete:active{background:rgba(239,68,68,.25);}
 .dc-overdue-more{padding:8px 12px;font-size:11px;color:var(--ink-soft);text-align:center;}
 .dc-overlay{position:fixed;inset:0;background:rgba(43,42,37,0.5);display:flex;align-items:flex-end;justify-content:center;z-index:250;padding:0;animation:dc-fade-in .2s ease both;}
 .dc-card{width:100%;max-width:100vw;height:auto;max-height:92dvh;background:var(--paper-light);padding:16px 16px max(16px,env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:auto;border-radius:18px 18px 0 0;box-sizing:border-box;animation:dc-slide-up .32s cubic-bezier(0.22,1,0.36,1) both;}
