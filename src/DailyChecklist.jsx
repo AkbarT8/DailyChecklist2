@@ -774,7 +774,12 @@ export default function DailyChecklist() {
   }, []);
 
   const dismissOverdue = useCallback((taskId, date) => {
-    setTasks((prev) => prev.map((t) => t.id !== taskId ? t : { ...t, dismissed: { ...t.dismissed, [date]: true } }));
+    const todayD = todayStr();
+    setTasks((prev) => prev.map((t) => {
+      if (t.id !== taskId) return t;
+      // Dismiss the overdue date AND today so the task doesn't reappear in Сегодня
+      return { ...t, dismissed: { ...t.dismissed, [date]: true, [todayD]: true } };
+    }));
   }, []);
 
   const nextAyat = useCallback(() => {
@@ -1151,7 +1156,8 @@ export default function DailyChecklist() {
   const todayTasks = useMemo(() => {
     let list = baseTasks
       .filter((t) => isScheduledOn(t, today))
-      .filter((t) => !overdueTaskIds.has(t.id)) // overdue tasks go to Просроченные only
+      .filter((t) => !overdueTaskIds.has(t.id))      // overdue tasks → Просроченные only
+      .filter((t) => !t.dismissed?.[today])           // dismissed today (after skip) → hide
       .sort((a, b) => (a.time || "99:99").localeCompare(b.time || "99:99"));
     if (listFilter === "incomplete") list = list.filter((t) => !t.completions[today]);
     return list;
@@ -1163,11 +1169,12 @@ export default function DailyChecklist() {
   );
 
   const todayStats = useMemo(() => {
-    const all = tasks.filter((t) => isScheduledOn(t, today));
+    // Exclude overdue tasks — they only count in Просроченные
+    const all = tasks.filter((t) => isScheduledOn(t, today) && !overdueTaskIds.has(t.id));
     const done = all.filter((t) => t.completions[today]).length;
     const incomplete = all.length - done;
     return { total: all.length, done, incomplete };
-  }, [tasks, today]);
+  }, [tasks, today, overdueTaskIds]);
 
   const folderTaskCount = (name) => tasks.filter((t) => t.folder === name).length;
   const selectableTodayIds = todayTasks.map((t) => t.id);
