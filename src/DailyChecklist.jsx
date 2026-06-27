@@ -15,7 +15,9 @@ import {
   welcomeAyatForDay,
   inspireItemKey,
 } from "./inspirationLogic.js";
-import { requestNotificationPermission, showDailyReminder, registerReminderWorker } from "./dailyReminder.js";
+import { requestNotificationPermission, showDailyReminder, scheduleDailyReminder, registerReminderWorker } from "./dailyReminder.js";
+
+const USER_PROFILE_KEY = "checklist-user-profile";
 
 const pad = (n) => String(n).padStart(2, "0");
 const formatLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -203,6 +205,104 @@ function FolderSheet({ open, onClose, title, folders, selected, onSelect, showCo
   );
 }
 
+// ─── Username uniqueness check via Supabase REST ─────────────────────────────
+const SB_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+async function checkUsernameAvailable(username) {
+  if (!SB_URL || !SB_KEY) return true; // No backend — skip check
+  try {
+    const res = await fetch(
+      `${SB_URL}/rest/v1/checklist_users?username=eq.${encodeURIComponent(username)}&select=username&limit=1`,
+      { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } }
+    );
+    const data = await res.json();
+    return !Array.isArray(data) || data.length === 0;
+  } catch {
+    return true; // Network error — allow locally
+  }
+}
+
+async function registerUsername(username, displayName) {
+  if (!SB_URL || !SB_KEY) return;
+  try {
+    await fetch(`${SB_URL}/rest/v1/checklist_users`, {
+      method: "POST",
+      headers: {
+        apikey: SB_KEY,
+        Authorization: `Bearer ${SB_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({ username, display_name: displayName }),
+    });
+  } catch {
+    /* ignore — stored locally anyway */
+  }
+}
+
+function UserSetupScreen({ onComplete }) {
+  const [displayName, setDisplayName] = useState("");
+  const [username, setUsername] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const sanitize = (v) => v.toLowerCase().replace(/[^a-z0-9_.]/g, "");
+
+  const handleSubmit = async () => {
+    const dn = displayName.trim();
+    const un = sanitize(username.trim());
+    if (!dn) { setError("Введите ваше имя"); return; }
+    if (!un || un.length < 3) { setError("Юзернейм — минимум 3 символа (латиница, цифры, _ .)"); return; }
+    if (un.length > 24) { setError("Юзернейм — максимум 24 символа"); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const available = await checkUsernameAvailable(un);
+      if (!available) { setError("Этот юзернейм уже занят — выберите другой"); setLoading(false); return; }
+      await registerUsername(un, dn);
+      onComplete({ displayName: dn, username: un });
+    } catch {
+      setError("Ошибка сети. Попробуйте ещё раз.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="dc-setup-screen">
+      <style>{STYLES}</style>
+      <div className="dc-setup-card">
+        <div className="dc-setup-emoji">📖</div>
+        <h1 className="dc-setup-title">Ежедневник</h1>
+        <p className="dc-setup-desc">Введите своё имя и уникальный юзернейм</p>
+
+        <div className="dc-setup-fields">
+          <div className="dc-field">
+            <label>Ваше имя</label>
+            <input className="dc-input" placeholder="Например: Акбар" value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()} />
+          </div>
+          <div className="dc-field">
+            <label>Юзернейм (латиница, уникальный)</label>
+            <div className="dc-username-wrap">
+              <span className="dc-username-at">@</span>
+              <input className="dc-input dc-username-input" placeholder="akbar123" value={username}
+                onChange={(e) => setUsername(sanitize(e.target.value))}
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                maxLength={24} />
+            </div>
+          </div>
+          {error && <div className="dc-setup-error">{error}</div>}
+          <button type="button" className="dc-btn-primary dc-setup-btn" onClick={handleSubmit} disabled={loading}>
+            {loading ? "Проверяем…" : "Начать →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isScheduledOn(task, dateStr) {
   if (dateStr < task.startDate) return false;
   switch (task.repeat) {
@@ -285,6 +385,7 @@ export default function DailyChecklist() {
   const [reminderLastDate, setReminderLastDate] = useState(null);
   const [dailyBannerOpen, setDailyBannerOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [userProfile, setUserProfile] = useState(null); // { displayName, username }
 
   const [view, setView] = useState("checklist");
   const [listFilter, setListFilter] = useState("all");
@@ -319,6 +420,12 @@ export default function DailyChecklist() {
 
   useEffect(() => {
     (async () => {
+      // Load user profile
+      try {
+        const raw = localStorage.getItem(USER_PROFILE_KEY);
+        if (raw) setUserProfile(JSON.parse(raw));
+      } catch { /* ignore */ }
+
       try {
         const res = await window.storage.get("checklist-data");
         if (res?.value) {
@@ -769,20 +876,36 @@ export default function DailyChecklist() {
   const hadithSaved = savedInspiration.some((x) => x.key === inspireItemKey("hadith", currentHadith?.id));
   const welcomeAyat = useMemo(() => welcomeAyatForDay(today), [today]);
 
+  // Daily banner/notification
   useEffect(() => {
-    if (!loaded || !entered) return;
+    if (!loaded || !entered || !userProfile) return;
     if (reminderLastDate === today) return;
     const granted = typeof Notification !== "undefined" && Notification.permission === "granted";
-    if (granted && showDailyReminder({ dateStr: today, ayat: currentAyat, hadith: currentHadith })) {
+    if (granted && showDailyReminder({ dateStr: today, displayName: userProfile.displayName })) {
       setReminderLastDate(today);
       return;
     }
     setDailyBannerOpen(true);
     setReminderLastDate(today);
-  }, [loaded, entered, today, reminderLastDate, currentAyat, currentHadith]);
+  }, [loaded, entered, userProfile, today, reminderLastDate]);
+
+  const handleUserSetupComplete = async (profile) => {
+    localStorage.setItem(USER_PROFILE_KEY, JSON.stringify(profile));
+    setUserProfile(profile);
+    // Request permission & schedule daily notification
+    const perm = await requestNotificationPermission();
+    if (perm === "granted") {
+      await scheduleDailyReminder(profile.displayName);
+    }
+  };
 
   if (!loaded) {
     return <div className="dc-loading">Загрузка…</div>;
+  }
+
+  // First-time setup: ask for name + username
+  if (!userProfile) {
+    return <UserSetupScreen onComplete={handleUserSetupComplete} />;
   }
 
   if (!entered) {
@@ -790,6 +913,7 @@ export default function DailyChecklist() {
       <div className="dc-welcome">
         <style>{STYLES}</style>
         <div className="dc-welcome-card">
+          <div className="dc-welcome-user">Привет, {userProfile.displayName}! 👋</div>
           <div className="dc-welcome-label">Аят из Корана</div>
           <div className="dc-welcome-ar">{welcomeAyat?.ar}</div>
           <div className="dc-welcome-ru">{welcomeAyat?.ru}</div>
@@ -809,7 +933,7 @@ export default function DailyChecklist() {
       <header className="dc-header">
         <div className="dc-header-left">
           <h1 className="dc-title">Ежедневник</h1>
-          <div className="dc-subtitle">{formatDisplay(today)} · {todayStats.done}/{todayStats.total} сегодня</div>
+          <div className="dc-subtitle">{userProfile?.displayName && <span className="dc-subtitle-user">@{userProfile.username} · </span>}{formatDisplay(today)} · {todayStats.done}/{todayStats.total} сегодня</div>
         </div>
         <div className="dc-header-actions">
           <div className="dc-segmented">
@@ -844,24 +968,11 @@ export default function DailyChecklist() {
           {dailyBannerOpen && (
             <div className="dc-daily-banner">
               <div className="dc-daily-banner-body">
-                <div className="dc-daily-banner-title">Напоминание дня</div>
-                <div className="dc-daily-banner-text">{currentAyat?.ru}</div>
+                <div className="dc-daily-banner-title">Добрый день, {userProfile?.displayName}!</div>
+                <div className="dc-daily-banner-text">Не забудьте проверить ваши задачи на сегодня.</div>
               </div>
               <button type="button" className="dc-icon-ghost" title="Закрыть" onClick={() => setDailyBannerOpen(false)}><X size={15} /></button>
             </div>
-          )}
-          {listFilter !== "saved" && (
-            <DailyInspiration
-              ayat={currentAyat}
-              hadith={currentHadith}
-              ayatSaved={ayatSaved}
-              hadithSaved={hadithSaved}
-              onNextAyat={nextAyat}
-              onNextHadith={nextHadith}
-              onSaveAyat={toggleSaveAyat}
-              onSaveHadith={toggleSaveHadith}
-              meta={INSPIRATION_META}
-            />
           )}
           <div className="dc-toolbar">
             <div className="dc-filter-row">
@@ -1443,13 +1554,30 @@ html{width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust
 body{margin:0;width:100%;overflow-x:hidden;overscroll-behavior-x:none;}
 #root{width:100%;overflow-x:hidden;}
 .dc-loading{font-family:var(--font-body);padding:40px;color:var(--ink-soft);}
+/* ── Setup screen ── */
+.dc-setup-screen{min-height:100dvh;display:flex;align-items:center;justify-content:center;background:var(--paper);padding:max(20px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(20px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));font-family:var(--font-body);}
+.dc-setup-card{background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:16px;padding:28px 20px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center;}
+.dc-setup-emoji{font-size:44px;line-height:1;}
+.dc-setup-title{font-family:var(--font-display);font-size:22px;font-weight:700;margin:0;color:var(--ink);}
+.dc-setup-desc{font-size:13px;color:var(--ink-soft);margin:0;line-height:1.5;}
+.dc-setup-fields{display:flex;flex-direction:column;gap:10px;width:100%;text-align:left;}
+.dc-field{display:flex;flex-direction:column;gap:4px;}
+.dc-field label{font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink-soft);}
+.dc-username-wrap{display:flex;align-items:center;border:1.5px solid var(--ink-faint);border-radius:8px;overflow:hidden;background:var(--paper);}
+.dc-username-at{padding:0 8px;font-size:15px;color:var(--ink-soft);background:var(--paper-light);border-right:1px solid var(--ink-faint);height:44px;display:flex;align-items:center;}
+.dc-username-input{border:none!important;border-radius:0!important;flex:1;}
+.dc-setup-error{background:#fdf1f0;border:1px solid #e8a09a;color:#b94a48;border-radius:8px;padding:8px 10px;font-size:13px;width:100%;}
+.dc-setup-btn{width:100%;justify-content:center;font-size:15px;min-height:48px;margin-top:4px;}
+/* ── Welcome screen ── */
 .dc-welcome{min-height:100dvh;display:flex;align-items:center;justify-content:center;background:var(--paper);padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));font-family:var(--font-body);}
 .dc-welcome-card{background:var(--paper-light);border:1px solid var(--ink-faint);border-radius:12px;padding:28px 20px;text-align:center;max-width:420px;width:100%;}
+.dc-welcome-user{font-size:16px;font-weight:600;color:var(--ink);margin-bottom:14px;}
 .dc-welcome-label{font-family:var(--font-mono);font-size:10px;letter-spacing:1.5px;color:var(--ink-soft);text-transform:uppercase;margin-bottom:16px;}
 .dc-welcome-ar{font-family:var(--font-display);font-size:clamp(22px,6vw,30px);line-height:1.65;color:var(--accent);margin-bottom:14px;direction:rtl;text-align:center;}
 .dc-welcome-ru{font-size:14px;line-height:1.5;color:var(--ink);margin-bottom:10px;}
 .dc-welcome-ref{font-family:var(--font-mono);font-size:10px;color:var(--ink-soft);margin-bottom:22px;}
 .dc-welcome-btn{margin:0 auto;padding:12px 36px;font-size:15px;min-height:44px;width:100%;max-width:280px;justify-content:center;}
+.dc-subtitle-user{opacity:.65;}
 .dc-daily-banner{display:flex;align-items:flex-start;gap:10px;background:var(--accent-light);border:1px solid var(--accent);border-radius:8px;padding:10px 12px;margin-bottom:10px;}
 .dc-daily-banner-body{flex:1;min-width:0;}
 .dc-daily-banner-title{font-family:var(--font-mono);font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--accent);margin-bottom:4px;}
